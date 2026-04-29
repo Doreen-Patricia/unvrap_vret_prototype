@@ -1,0 +1,6 @@
+.env
+.venv/
+outputs/
+data/uploads_from_unvrap/
+__pycache__/
+*.pyc
