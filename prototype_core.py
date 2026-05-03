@@ -30,6 +30,8 @@ SUMMARIES_DIR = OUTPUTS_DIR / "paper_summaries"
 STATE_FILE = OUTPUTS_DIR / "project_state.json"
 MANIFEST_FILE = OUTPUTS_DIR / "upload_manifest.json"
 BRIEF_FILE = OUTPUTS_DIR / "literature_brief.json"
+HUMAN_SUMMARIES_DIR = OUTPUTS_DIR / "paper_summaries_human"
+BRIEF_TEXT_FILE = OUTPUTS_DIR / "literature_brief_human.md"
 
 SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".rtf"}
 DEFAULT_MODEL = os.getenv("MODEL_NAME", "gpt-4.1-mini")
@@ -106,6 +108,7 @@ LITERATURE_BRIEF_SCHEMA: Dict[str, Any] = {
 def ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
+    HUMAN_SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -132,6 +135,11 @@ def save_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def save_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def load_json(path: Path, default: Any) -> Any:
@@ -403,6 +411,7 @@ def generate_single_paper_summary(
 
     output_path = SUMMARIES_DIR / f"{doc_record['doc_key']}.json"
     save_json(output_path, package)
+    save_human_summary_markdown(package)
     update_summary_status(doc_record["doc_key"], status="completed")
     return package
 
@@ -485,6 +494,7 @@ def generate_literature_brief(
         "brief": brief,
     }
     save_json(BRIEF_FILE, package)
+    save_human_brief_markdown(package)
     return package
 
 
@@ -525,6 +535,181 @@ def get_evidence_chunks(
     return chunks
 
 
+
+
+def clean_text_value(value: Any, fallback: str = "Not reported") -> str:
+    if value is None:
+        return fallback
+    if isinstance(value, list):
+        value = "; ".join(str(item).strip() for item in value if str(item).strip())
+    text = str(value).strip()
+    return text if text else fallback
+
+
+def clean_list_values(items: Any, fallback: Optional[str] = None) -> List[str]:
+    if items is None:
+        return [fallback] if fallback else []
+    if isinstance(items, str):
+        items = [items]
+    cleaned: List[str] = []
+    for item in items:
+        value = clean_text_value(item, fallback="").strip()
+        if value and value not in cleaned:
+            cleaned.append(value)
+    if not cleaned and fallback:
+        return [fallback]
+    return cleaned
+
+
+def ensure_sentence(text: str) -> str:
+    value = clean_text_value(text, fallback="").strip()
+    if not value:
+        return ""
+    if value[-1] in ".!?":
+        return value
+    return f"{value}."
+
+
+def bullet_lines(items: List[str], fallback: str) -> str:
+    cleaned = clean_list_values(items, fallback=fallback)
+    return "\n".join(f"- {ensure_sentence(item)}" for item in cleaned)
+
+
+def humanize_summary_package(package: Dict[str, Any]) -> str:
+    summary = package.get("summary", {})
+    title = clean_text_value(summary.get("paper_title"), package.get("filename", "Paper summary"))
+    filename = clean_text_value(package.get("filename"))
+    authors = clean_text_value(summary.get("authors"))
+    publication_year = clean_text_value(summary.get("publication_year"))
+    paper_type = clean_text_value(summary.get("paper_type"))
+    phobia_target = clean_text_value(summary.get("phobia_target"))
+    study_design = clean_text_value(summary.get("study_design"))
+    participant_details = clean_text_value(summary.get("participant_details"))
+    vr_setup = clean_text_value(summary.get("vr_setup_and_exposure_protocol"))
+    control = clean_text_value(summary.get("comparison_or_control"))
+    outcome_measures = clean_list_values(summary.get("outcome_measures"), fallback="Not reported")
+    key_findings = clean_list_values(summary.get("key_findings"), fallback="Not reported")
+    limitations = clean_list_values(summary.get("limitations"), fallback="Not clearly reported")
+    relevance = clean_text_value(summary.get("relevance_to_unvrap"))
+    recommended_action = clean_text_value(summary.get("recommended_action_for_unvrap"))
+    concise_summary = clean_text_value(summary.get("concise_summary"))
+    confidence = clean_text_value(summary.get("confidence")).title()
+    model_name = clean_text_value(package.get("model_name"))
+    generated_at = clean_text_value(package.get("generated_at"), fallback="")
+
+    metadata = [
+        f"**File:** {filename}",
+        f"**Confidence:** {confidence}",
+        f"**Mode:** {model_name}",
+    ]
+    if authors != "Not reported":
+        metadata.insert(1, f"**Authors:** {authors}")
+    if publication_year != "Not reported":
+        metadata.insert(2 if authors != "Not reported" else 1, f"**Year:** {publication_year}")
+
+    lines: List[str] = [
+        f"# {title}",
+        " | ".join(metadata),
+        "",
+        "## Human-readable summary",
+        ensure_sentence(concise_summary)
+        if concise_summary != "Not reported"
+        else ensure_sentence(
+            f"This paper focuses on {phobia_target if phobia_target != 'Not reported' else 'Virtual Reality Exposure Therapy for phobias'} "
+            f"and is best described as {study_design if study_design != 'Not reported' else 'a VRET study'}"
+        ),
+        "",
+        "## Study overview",
+        ensure_sentence(
+            f"This paper is categorized as {paper_type} and focuses on {phobia_target}. "
+            f"The reported study design is {study_design}"
+        ),
+        ensure_sentence(participant_details)
+        if participant_details != "Not reported"
+        else "The extracted text does not clearly report participant details.",
+        ensure_sentence(f"The VR setup and exposure protocol can be summarized as: {vr_setup}")
+        if vr_setup != "Not reported"
+        else "The extracted text does not clearly describe the VR setup and exposure protocol.",
+        ensure_sentence(f"The comparison or control condition mentioned is: {control}")
+        if control != "Not reported"
+        else "A clear comparison or control condition was not reported in the extracted text.",
+        "",
+        "## Outcome measures",
+        bullet_lines(outcome_measures, fallback="Not reported"),
+        "",
+        "## Key findings",
+        bullet_lines(key_findings, fallback="Not reported"),
+        "",
+        "## Limitations",
+        bullet_lines(limitations, fallback="Not clearly reported"),
+        "",
+        "## Why this matters to UnVRap",
+        ensure_sentence(relevance),
+        "",
+        "## Recommended next step",
+        ensure_sentence(recommended_action),
+    ]
+    if generated_at:
+        lines.extend(["", f"_Generated at: {generated_at}_"])
+    return "\n".join(lines).strip() + "\n"
+
+
+def humanize_literature_brief_package(package: Dict[str, Any]) -> str:
+    brief = package.get("brief", {})
+    number_of_papers = brief.get("number_of_papers_considered", 0)
+    recurring_phobias = clean_list_values(brief.get("recurring_phobias"), fallback="Not reported")
+    recurring_methods = clean_list_values(brief.get("recurring_methods"), fallback="Not reported")
+    common_outcomes = clean_list_values(brief.get("common_outcomes"), fallback="Not reported")
+    common_limitations = clean_list_values(brief.get("common_limitations"), fallback="Not reported")
+    strongest_signals = clean_list_values(brief.get("strongest_signals_for_unvrap"), fallback="Not reported")
+    research_gaps = clean_list_values(brief.get("research_gaps"), fallback="Not reported")
+    implementation_note = clean_text_value(brief.get("implementation_note"))
+    executive_summary = clean_text_value(brief.get("executive_summary"))
+    model_name = clean_text_value(package.get("model_name"))
+    generated_at = clean_text_value(package.get("generated_at"), fallback="")
+
+    lines: List[str] = [
+        "# UnVRap VRET Literature Brief",
+        f"**Papers considered:** {number_of_papers} | **Mode:** {model_name}",
+        "",
+        "## Executive summary",
+        ensure_sentence(executive_summary),
+        "",
+        "## Recurring phobias in the reviewed papers",
+        bullet_lines(recurring_phobias, fallback="Not reported"),
+        "",
+        "## Recurring study methods",
+        bullet_lines(recurring_methods, fallback="Not reported"),
+        "",
+        "## Common outcomes",
+        bullet_lines(common_outcomes, fallback="Not reported"),
+        "",
+        "## Common limitations",
+        bullet_lines(common_limitations, fallback="Not reported"),
+        "",
+        "## Strongest signals for UnVRap",
+        bullet_lines(strongest_signals, fallback="Not reported"),
+        "",
+        "## Research gaps",
+        bullet_lines(research_gaps, fallback="Not reported"),
+        "",
+        "## Implementation note",
+        ensure_sentence(implementation_note),
+    ]
+    if generated_at:
+        lines.extend(["", f"_Generated at: {generated_at}_"])
+    return "\n".join(lines).strip() + "\n"
+
+
+def save_human_summary_markdown(package: Dict[str, Any]) -> Path:
+    output_path = HUMAN_SUMMARIES_DIR / f"{package['doc_key']}.md"
+    save_text(output_path, humanize_summary_package(package))
+    return output_path
+
+
+def save_human_brief_markdown(package: Dict[str, Any]) -> Path:
+    save_text(BRIEF_TEXT_FILE, humanize_literature_brief_package(package))
+    return BRIEF_TEXT_FILE
 
 
 STOPWORDS = {
@@ -737,6 +922,7 @@ def generate_single_paper_summary_local(doc_record: Dict[str, Any]) -> Dict[str,
     }
     output_path = SUMMARIES_DIR / f"{doc_record['doc_key']}.json"
     save_json(output_path, package)
+    save_human_summary_markdown(package)
     update_summary_status(doc_record["doc_key"], status="completed_local")
     return package
 
@@ -809,6 +995,7 @@ def generate_literature_brief_local(summary_packages: List[Dict[str, Any]]) -> D
         "brief": brief,
     }
     save_json(BRIEF_FILE, package)
+    save_human_brief_markdown(package)
     return package
 
 

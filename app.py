@@ -19,6 +19,8 @@ from prototype_core import (
     generate_single_paper_summary,
     generate_single_paper_summary_local,
     get_all_doc_records,
+    humanize_literature_brief_package,
+    humanize_summary_package,
     get_client,
     get_doc_record,
     get_evidence_chunks,
@@ -41,7 +43,7 @@ st.caption(
 
 with st.sidebar:
     st.header("Project setup")
-    processing_mode = st.selectbox("Processing mode", ["Local no-cost"], index=0)
+    processing_mode = st.selectbox("Processing mode", ["Local no-cost", "Cloud (OpenAI)"], index=0)
     model_name = st.text_input("Model name", value=DEFAULT_MODEL)
     state = load_project_state()
     vector_store_name = st.text_input(
@@ -189,13 +191,29 @@ with single_tab:
                         model_name=model_name,
                     )
                 st.success("Summary generated and saved.")
-                st.json(package["summary"], expanded=True)
-                st.download_button(
-                    "Download summary JSON",
-                    data=json.dumps(package, ensure_ascii=False, indent=2),
-                    file_name=f"summary_{doc_record['filename']}.json",
-                    mime="application/json",
-                )
+                human_summary = humanize_summary_package(package)
+                st.markdown(human_summary)
+
+                download_col1, download_col2 = st.columns([1, 1])
+                with download_col1:
+                    st.download_button(
+                        "Download human-readable summary (.md)",
+                        data=human_summary,
+                        file_name=f"summary_{doc_record['filename']}.md",
+                        mime="text/markdown",
+                        use_container_width=True,
+                    )
+                with download_col2:
+                    st.download_button(
+                        "Download raw JSON",
+                        data=json.dumps(package, ensure_ascii=False, indent=2),
+                        file_name=f"summary_{doc_record['filename']}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                    )
+
+                with st.expander("View raw structured data (JSON)"):
+                    st.json(package["summary"], expanded=False)
             except Exception as exc:
                 st.error(str(exc))
 
@@ -227,7 +245,7 @@ with single_tab:
 with batch_tab:
     st.subheader("Generate summaries for every uploaded paper")
     st.write(
-        "Run this after one or two sample papers look sensible. It saves one JSON summary file per paper."
+        "Run this after one or two sample papers look sensible. It saves one structured JSON summary and one human-readable Markdown summary per paper."
     )
     if st.button("Batch summarize all uploaded papers", use_container_width=True):
         try:
@@ -279,13 +297,29 @@ with brief_tab:
                     model_name=model_name,
                 )
             st.success("Literature brief generated and saved.")
-            st.json(package["brief"], expanded=True)
-            st.download_button(
-                "Download literature brief JSON",
-                data=json.dumps(package, ensure_ascii=False, indent=2),
-                file_name="unvrap_vret_literature_brief.json",
-                mime="application/json",
-            )
+            human_brief = humanize_literature_brief_package(package)
+            st.markdown(human_brief)
+
+            download_col1, download_col2 = st.columns([1, 1])
+            with download_col1:
+                st.download_button(
+                    "Download human-readable literature brief (.md)",
+                    data=human_brief,
+                    file_name="unvrap_vret_literature_brief.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+            with download_col2:
+                st.download_button(
+                    "Download raw JSON",
+                    data=json.dumps(package, ensure_ascii=False, indent=2),
+                    file_name="unvrap_vret_literature_brief.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+
+            with st.expander("View raw structured data (JSON)"):
+                st.json(package["brief"], expanded=False)
         except Exception as exc:
             st.error(str(exc))
 
@@ -298,7 +332,8 @@ with brief_tab:
 4) Test one selected paper summary
 5) Inspect evidence chunks
 6) Batch summarize all papers
-7) Generate literature brief from saved JSON summaries
-8) Review outputs with UnVRap and refine prompts/schema
+7) Generate literature brief from saved summaries
+8) Share the human-readable Markdown outputs with UnVRap and use raw JSON only as the internal structured format
+9) Review outputs with UnVRap and refine prompts/schema
         """.strip()
     )
