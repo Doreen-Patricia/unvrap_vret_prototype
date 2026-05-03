@@ -9,8 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
-from openai import OpenAI
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - optional in public local-mode deployments
+    def load_dotenv(*args, **kwargs):
+        return False
 
 try:
     import fitz  # PyMuPDF
@@ -112,7 +115,15 @@ def ensure_dirs() -> None:
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def get_client() -> OpenAI:
+def get_client() -> Any:
+    try:
+        from openai import OpenAI
+    except Exception as exc:  # pragma: no cover - only needed in cloud mode
+        raise RuntimeError(
+            "Cloud mode is unavailable because the 'openai' package could not be imported. "
+            "Use Local no-cost mode, or add a working 'openai' dependency in requirements.txt and reboot the app."
+        ) from exc
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(
@@ -187,7 +198,7 @@ def list_local_supported_files(folder: Path) -> List[Path]:
 
 
 def create_or_reuse_vector_store(
-    client: OpenAI,
+    client: Any,
     vector_store_name: str,
     existing_vector_store_id: Optional[str] = None,
 ) -> str:
@@ -248,7 +259,7 @@ def register_local_paths(paths: List[Path], project_name: str = "UnVRap", topic_
 
 
 def upload_paths_to_vector_store(
-    client: OpenAI,
+    client: Any,
     paths: List[Path],
     vector_store_id: str,
     project_name: str = "UnVRap",
@@ -365,7 +376,7 @@ def build_summary_prompt(filename: str) -> List[Dict[str, str]]:
 
 
 def generate_single_paper_summary(
-    client: OpenAI,
+    client: Any,
     vector_store_id: str,
     doc_record: Dict[str, Any],
     model_name: str = DEFAULT_MODEL,
@@ -439,7 +450,7 @@ def load_summary_packages() -> List[Dict[str, Any]]:
 
 
 def generate_literature_brief(
-    client: OpenAI,
+    client: Any,
     summary_packages: List[Dict[str, Any]],
     model_name: str = DEFAULT_MODEL,
 ) -> Dict[str, Any]:
@@ -499,7 +510,7 @@ def generate_literature_brief(
 
 
 def get_evidence_chunks(
-    client: OpenAI,
+    client: Any,
     vector_store_id: str,
     doc_key: str,
     max_num_results: int = 5,
@@ -1000,7 +1011,7 @@ def generate_literature_brief_local(summary_packages: List[Dict[str, Any]]) -> D
 
 
 def batch_generate_all_summaries(
-    client: OpenAI,
+    client: Any,
     vector_store_id: str,
     model_name: str = DEFAULT_MODEL,
 ) -> List[Dict[str, Any]]:
